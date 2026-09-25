@@ -53,7 +53,7 @@ export function classifyCategory(title: string): Category {
   const has = (...words: string[]) => words.some((w) => t.includes(w));
 
   if (has("漫画", "汉化", "画集", "cbz", "cbr")) return "comic";
-  if (has("小说", "epub", "mobi", "azw3", "txt全集", "文集")) return "novel";
+  if (has("小说", "epub", "mobi", "azw3", "txt全集", "文集", ".txt", ".doc", "全本", "著:")) return "novel";
   if (has("动漫", "番剧", "动画", "ova", "剧场版")) return "anime";
   if (has("综艺", "演唱会", "晚会", "花絮", "真人秀")) return "tvshow";
   if (has("电视剧", "剧集", "全集合集", "更新至", "全1-") || /第\s*[0-9一二三四五六七八九十百]+\s*季/.test(t)) return "tv";
