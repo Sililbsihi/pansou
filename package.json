@@ -1,0 +1,26 @@
+{
+  "name": "pansou-search",
+  "version": "1.0.0",
+  "private": true,
+  "description": "网盘资源搜索引擎：聚合百度网盘/夸克/迅雷/蓝奏云资源，支持搜索、筛选、失效检测、每日更新",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "next": "^14.2.35",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.45",
+    "tailwindcss": "^3.4.10",
+    "typescript": "^5.5.4"
+  }
+}
