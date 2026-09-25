@@ -54,6 +54,7 @@ npm run dev                  # http://localhost:3000
 | `SITE_NAME` | 否 | 站点名称，默认「盘搜」 |
 
 ## 上线步骤（概览）
+- 2026-09-25 首次部署上线
 
 1. Supabase 建项目 → SQL Editor 执行 `database/schema.sql`
 2. 代码推 GitHub → Vercel 导入仓库
