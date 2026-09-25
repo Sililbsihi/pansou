@@ -7,7 +7,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { isDbConfigured, getAdminDb, getDb } from "@/lib/db";
-import { fetchFromSource, getSourceUrls, type NormalizedResource } from "@/lib/source";
+import { fetchFromSource, prewarmSources, getSourceUrls, type NormalizedResource } from "@/lib/source";
 import { runPool } from "@/lib/validate";
 import { SYNC_KEYWORDS } from "@/lib/keywords";
 
@@ -26,21 +26,6 @@ function authorized(req: NextRequest): boolean {
   const custom = req.headers.get("x-cron-secret") ?? "";
   const query = req.nextUrl.searchParams.get("secret") ?? "";
   return auth === `Bearer ${secret}` || custom === secret || query === secret;
-}
-
-/** 预热全部数据源：免费托管（如 Render）冷启动可能需要 20-50 秒，先唤醒再抓 */
-async function prewarmSource(): Promise<void> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 40_000);
-  try {
-    await Promise.allSettled(
-      getSourceUrls().map((base) => fetch(base, { signal: ctrl.signal, cache: "no-store" }))
-    );
-  } catch {
-    // 预热失败不致命，后面的正式抓取会重试
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 export async function GET(req: NextRequest) {
@@ -109,7 +94,7 @@ export async function GET(req: NextRequest) {
   const normalKeywords = keywords.filter((kw) => !refreshSet.has(kw));
 
   // ---------- 2. 预热 + 并发抓取（追更词走强制刷新，普通词走缓存） ----------
-  await prewarmSource();
+  await prewarmSources();
 
   const allItems: NormalizedResource[] = [];
   const fetchOne = async (kw: string, refresh: boolean) => {

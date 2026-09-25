@@ -79,7 +79,12 @@ export function getSourceUrls(): string[] {
 /** 从全部数据源并发抓取同一关键词，跨源按链接去重后合并 */
 export async function fetchFromSource(
   keyword: string,
-  opts: { refresh?: boolean; timeoutMs?: number } = {}
+  opts: {
+    refresh?: boolean;
+    timeoutMs?: number;
+    /** 单个数据源访问失败时的回调（用于向调用方如实报告，而不是静默吞掉） */
+    onSourceError?: (base: string, reason: string) => void;
+  } = {}
 ): Promise<NormalizedResource[]> {
   const urls = getSourceUrls();
   if (urls.length === 0) return [];
@@ -87,8 +92,18 @@ export async function fetchFromSource(
   const headers: Record<string, string> = { "User-Agent": "Mozilla/5.0 pansou-sync" };
   if (process.env.SOURCE_API_TOKEN) headers["Authorization"] = `Bearer ${process.env.SOURCE_API_TOKEN}`;
 
-  // 各数据源并发请求；单个源失败不影响其他源
-  const results = await Promise.allSettled(urls.map((base) => fetchOneSource(base, keyword, opts, headers)));
+  // 各数据源并发请求；单个源失败通过 onSourceError 上报，不影响其他源
+  const results = await Promise.allSettled(
+    urls.map(async (base) => {
+      try {
+        return await fetchOneSource(base, keyword, opts, headers);
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : String(e);
+        opts.onSourceError?.(base, reason);
+        throw e;
+      }
+    })
+  );
   const okLists = results
     .filter((r): r is PromiseFulfilledResult<NormalizedResource[]> => r.status === "fulfilled")
     .map((r) => r.value);
@@ -104,6 +119,21 @@ export async function fetchFromSource(
     }
   }
   return out;
+}
+
+/** 预热全部数据源：免费托管（如 Render）冷启动可能需要 20-50 秒，先唤醒再抓 */
+export async function prewarmSources(timeoutMs = 40_000): Promise<void> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    await Promise.allSettled(
+      getSourceUrls().map((base) => fetch(base, { signal: ctrl.signal, cache: "no-store" }))
+    );
+  } catch {
+    // 预热失败不致命，后面的正式抓取会重试
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** 从单个数据源抓取 */

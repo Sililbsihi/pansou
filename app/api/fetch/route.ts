@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { isDbConfigured, getAdminDb } from "@/lib/db";
-import { fetchFromSource } from "@/lib/source";
+import { fetchFromSource, prewarmSources } from "@/lib/source";
 
 export const maxDuration = 60;
 
@@ -35,8 +35,24 @@ export async function POST(req: NextRequest) {
   const admin = getAdminDb();
 
   try {
+    // 先预热数据源（Render 免费实例休眠时唤醒需要 20~50 秒，不预热会全部超时）
+    await prewarmSources();
+
     // 强制刷新抓取（refresh=true 绕过数据源缓存，拿最新分享）
-    const items = await fetchFromSource(kw, { refresh: true, timeoutMs: 45000 });
+    const sourceErrors: string[] = [];
+    const items = await fetchFromSource(kw, {
+      refresh: true,
+      timeoutMs: 45000,
+      onSourceError: (base, reason) => sourceErrors.push(`${base}: ${reason}`),
+    });
+
+    // 全部数据源都访问失败 → 如实报错（而不是误报“没人分享”）
+    if (items.length === 0 && sourceErrors.length > 0) {
+      return NextResponse.json(
+        { ok: false, error: `数据源暂时无法访问（可能正在唤醒或被限流），请 30 秒后重试。详情：${sourceErrors.join("；").slice(0, 200)}` },
+        { status: 502 }
+      );
+    }
 
     // 按链接去重后入库（已存在的自动跳过）
     let inserted = 0;
@@ -69,7 +85,9 @@ export async function POST(req: NextRequest) {
       message:
         inserted > 0
           ? `全网搜索完成：获取 ${items.length} 条，新收录 ${inserted} 条，页面马上刷新`
-          : `全网搜索完成：暂未找到「${kw}」的新资源（全网暂时还没人分享），建议过几天再试`,
+          : items.length > 0
+            ? `全网搜索完成：找到 ${items.length} 条，库里都已收录过（无新增）`
+            : `全网搜索完成：全网暂时还没人分享「${kw}」，建议过几天再试`,
       fetched: items.length,
       inserted,
     });
