@@ -38,22 +38,26 @@ export default function FetchNow({ keyword, mode }: { keyword: string; mode: "em
     }
   }
 
-  // 搜索无结果时自动触发一次实时搜索（每个关键词每次会话只自动一次，防止无限循环）
+  // 搜索无结果时自动触发实时搜索（同一关键词 10 分钟冷却一次，防循环但保证自愈）
   useEffect(() => {
     if (mode !== "empty" || autoRan.current) return;
     autoRan.current = true;
     const key = `pansou_autofetch_${keyword}`;
-    let served = false;
+    let last = 0;
     try {
-      served = window.sessionStorage.getItem(key) === "1";
-      window.sessionStorage.setItem(key, "1");
+      last = Number(window.sessionStorage.getItem(key) ?? 0);
     } catch {
       /* 隐私模式等场景忽略 */
     }
-    if (served) {
+    if (Date.now() - last < 10 * 60_000) {
       setState("done");
-      setMsg("本次会话已自动搜索过该词且暂无新增；如需再次尝试，可点击下方按钮");
+      setMsg("该词 10 分钟内已自动搜索过且暂无新增；可点击下方按钮手动重试");
       return;
+    }
+    try {
+      window.sessionStorage.setItem(key, String(Date.now()));
+    } catch {
+      /* 忽略 */
     }
     void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
