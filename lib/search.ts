@@ -30,7 +30,9 @@ async function searchViaDirect(
   let query = db
     .from("resources")
     .select("*", { count: "exact" })
-    .or(`title.ilike.%${tok}%,description.ilike.%${tok}%`);
+    // 只按标题模糊匹配：description 仅是来源备注，标题必含关键词；
+    // 不用 or= 组合语法，排除 PostgREST 解析兼容性问题
+    .ilike("title", `%${tok}%`);
   if (p.category) query = query.eq("category", p.category);
   if (p.pan) query = query.eq("pan_type", p.pan);
   if (p.status && p.status !== "all") query = query.eq("status", p.status);
