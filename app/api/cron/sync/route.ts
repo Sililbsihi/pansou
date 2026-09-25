@@ -7,7 +7,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { isDbConfigured, getAdminDb, getDb } from "@/lib/db";
-import { fetchFromSource, type NormalizedResource } from "@/lib/source";
+import { fetchFromSource, getSourceUrls, type NormalizedResource } from "@/lib/source";
 import { runPool } from "@/lib/validate";
 import { SYNC_KEYWORDS } from "@/lib/keywords";
 
@@ -28,14 +28,14 @@ function authorized(req: NextRequest): boolean {
   return auth === `Bearer ${secret}` || custom === secret || query === secret;
 }
 
-/** 预热数据源：免费托管（如 Render）冷启动可能需要 20-50 秒，先唤醒再抓 */
+/** 预热全部数据源：免费托管（如 Render）冷启动可能需要 20-50 秒，先唤醒再抓 */
 async function prewarmSource(): Promise<void> {
-  const base = process.env.SOURCE_API_URL;
-  if (!base) return;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 40_000);
   try {
-    await fetch(base, { signal: ctrl.signal, cache: "no-store" });
+    await Promise.allSettled(
+      getSourceUrls().map((base) => fetch(base, { signal: ctrl.signal, cache: "no-store" }))
+    );
   } catch {
     // 预热失败不致命，后面的正式抓取会重试
   } finally {

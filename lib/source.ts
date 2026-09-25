@@ -66,13 +66,53 @@ function isAdultSpam(note: string, source: string | undefined): boolean {
   return BLOCKED_WORDS.some((w) => t.includes(w));
 }
 
+/** 数据源地址列表：SOURCE_API_URLS（逗号/空格分隔，支持多个，国内外结合）+ 兼容旧 SOURCE_API_URL */
+export function getSourceUrls(): string[] {
+  const raw = [process.env.SOURCE_API_URLS ?? "", process.env.SOURCE_API_URL ?? ""].join(",");
+  const list = raw
+    .split(/[\s,，;；]+/)
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter((s) => s.startsWith("http"));
+  return Array.from(new Set(list));
+}
+
+/** 从全部数据源并发抓取同一关键词，跨源按链接去重后合并 */
 export async function fetchFromSource(
   keyword: string,
   opts: { refresh?: boolean; timeoutMs?: number } = {}
 ): Promise<NormalizedResource[]> {
-  const base = process.env.SOURCE_API_URL;
-  if (!base) return [];
+  const urls = getSourceUrls();
+  if (urls.length === 0) return [];
 
+  const headers: Record<string, string> = { "User-Agent": "Mozilla/5.0 pansou-sync" };
+  if (process.env.SOURCE_API_TOKEN) headers["Authorization"] = `Bearer ${process.env.SOURCE_API_TOKEN}`;
+
+  // 各数据源并发请求；单个源失败不影响其他源
+  const results = await Promise.allSettled(urls.map((base) => fetchOneSource(base, keyword, opts, headers)));
+  const okLists = results
+    .filter((r): r is PromiseFulfilledResult<NormalizedResource[]> => r.status === "fulfilled")
+    .map((r) => r.value);
+
+  // 跨数据源按链接去重合并
+  const seen = new Set<string>();
+  const out: NormalizedResource[] = [];
+  for (const items of okLists) {
+    for (const it of items) {
+      if (seen.has(it.share_url)) continue;
+      seen.add(it.share_url);
+      out.push(it);
+    }
+  }
+  return out;
+}
+
+/** 从单个数据源抓取 */
+async function fetchOneSource(
+  base: string,
+  keyword: string,
+  opts: { refresh?: boolean; timeoutMs?: number },
+  headers: Record<string, string>
+): Promise<NormalizedResource[]> {
   const u = base.replace(/\/+$/, "") + "/api/search";
   // cloud_types 限定只返回网盘类结果（lanzou 归在 others，磁力/ed2k 不返回）
   const params = new URLSearchParams({
@@ -82,8 +122,6 @@ export async function fetchFromSource(
   });
   // 追更词强制刷新：绕过数据源缓存，拿到当天最新集数的分享
   if (opts.refresh) params.set("refresh", "true");
-  const headers: Record<string, string> = { "User-Agent": "Mozilla/5.0 pansou-sync" };
-  if (process.env.SOURCE_API_TOKEN) headers["Authorization"] = `Bearer ${process.env.SOURCE_API_TOKEN}`;
 
   const res = await fetchWithTimeout(`${u}?${params.toString()}`, { headers }, opts.timeoutMs ?? 25000);
   if (!res.ok) throw new Error(`数据源返回 ${res.status}`);
@@ -99,7 +137,7 @@ export async function fetchFromSource(
       if (/^(magnet:|ed2k:)/i.test(e.url)) continue; // 双保险：磁力/ed2k 一律不收
       if (isAdultSpam(e.note, e.source)) continue;   // 成人垃圾内容过滤
       const pan = detectPanType(e.url);
-      if (pan === "other") continue; // 只收录可识别的网盘（百度/夸克/迅雷/蓝奏云等）
+      // 注：不再跳过其他网盘——Mega/Google Drive/阿里云/115/123 等（海外内容主要在这些盘）也收录为 other
       if (seen.has(e.url)) continue; // 按链接去重
       seen.add(e.url);
       out.push({
