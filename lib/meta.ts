@@ -40,8 +40,8 @@ export function detectPanType(url: string): PanType {
   if (u.includes("pan.baidu.com")) return "baidu";
   if (u.includes("pan.quark.cn") || u.includes("drive.quark.cn")) return "quark";
   if (u.includes("pan.xunlei.com") || u.includes("xluser-1251081182")) return "xunlei";
-  // 蓝奏云域名众多：lanzou*.com / lanzn.com / lanzoui.com / lanzv.com 等
-  if (/lanz[ou][a-z]?[a-z]?\.(com|net|cc|me|org|vip|la|site|xyz|top|icu)/.test(u)) return "lanzou";
+  // 蓝奏云域名众多且常更换：lanzou*/lanzn/lanpv/lanpw/lanzv/lanzi 等全覆盖
+  if (/lanz[a-z0-9]{0,3}\.(com|net|cc|me|org|vip|la|site|xyz|top|icu|app)/.test(u)) return "lanzou";
   return "other";
 }
 
