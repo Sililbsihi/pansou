@@ -1,8 +1,9 @@
 /**
- * 统一搜索入口：已配置 Supabase → 调数据库函数 search_resources；
- * 未配置 → 用演示数据在内存中执行相同逻辑。
+ * 统一搜索入口：已配置 Supabase → 优先调数据库函数 search_resources，
+ * 函数异常或返回 0 条时自动降级为直查表兜底；未配置 → 演示数据。
  */
 import type { Resource, SearchParams, SearchResult } from "./types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { isDbConfigured, getDb } from "./db";
 import { DEMO_RESOURCES } from "./demo-data";
 import { parseFileSize } from "./meta";
@@ -13,6 +14,46 @@ function sizeRange(size?: string): [number | null, number | null] {
   if (size === "1_10") return [1024 ** 3, 10 * (1024 ** 3)];
   if (size === "gt10") return [10 * (1024 ** 3), null];
   return [null, null];
+}
+
+/** 直查兜底：绕过 RPC，用 supabase-js 直接查表（单词搜索语义与 RPC 一致） */
+async function searchViaDirect(
+  db: SupabaseClient,
+  p: SearchParams,
+  minSize: number | null,
+  maxSize: number | null
+): Promise<{ rows: Resource[]; total: number } | null> {
+  // PanSou/PostgREST 对组合词支持差，与 RPC 路径一致：只取首个词
+  const tok = (p.q ?? "").trim().split(/\s+/)[0]?.replace(/[,()"']/g, "") ?? "";
+  if (!tok) return null;
+
+  let query = db
+    .from("resources")
+    .select("*", { count: "exact" })
+    .or(`title.ilike.%${tok}%,description.ilike.%${tok}%`);
+  if (p.category) query = query.eq("category", p.category);
+  if (p.pan) query = query.eq("pan_type", p.pan);
+  if (p.status && p.status !== "all") query = query.eq("status", p.status);
+  if (p.days && p.days > 0) {
+    query = query.gte("updated_at", new Date(Date.now() - p.days * 86400_000).toISOString());
+  }
+  if (minSize !== null) query = query.gte("file_size", minSize);
+  if (maxSize !== null) query = query.lte("file_size", maxSize);
+
+  // 排序
+  if (p.sort === "size_desc") {
+    query = query.order("file_size", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false });
+  } else if (p.sort === "size_asc") {
+    query = query.order("file_size", { ascending: true, nullsLast: true }).order("updated_at", { ascending: false });
+  } else {
+    query = query.order("updated_at", { ascending: false });
+  }
+
+  const page = p.page ?? 1;
+  const per = Math.min(50, Math.max(1, p.per ?? 20));
+  const { data, count, error } = await query.range((page - 1) * per, page * per - 1);
+  if (error) throw error;
+  return { rows: (data ?? []) as unknown as Resource[], total: count ?? 0 };
 }
 
 /** 数据库模式：调用 SQL 函数（SQL 详见 database/schema.sql） */
@@ -35,7 +76,23 @@ async function searchFromDb(p: SearchParams): Promise<SearchResult> {
   const first = (data as { rows: Resource[]; total: number }[])?.[0];
   const total = Number(first?.total ?? 0);
   if (total === 0) {
-    // 返回 0 条时做深度诊断：用网站的连接直查表（匿名视角）+ 报告所连数据库地址
+    // RPC 返回 0 条时（函数可能被 API 层缓存干扰），自动用直查表兜底
+    try {
+      const direct = await searchViaDirect(db, p, minSize, maxSize);
+      if (direct && direct.total > 0) {
+        return {
+          rows: direct.rows,
+          total: direct.total,
+          page: p.page ?? 1,
+          per: p.per ?? 20,
+          demo: false,
+          debugError: `RPC 异常返回 0，已用直查兜底命中 ${direct.total} 条`,
+        };
+      }
+    } catch (e) {
+      console.error("[搜索] 直查兜底失败：", e);
+    }
+    // 兜底仍为 0：输出深度诊断（网站的连接直查表行数 + 所连数据库地址）
     let anonCount: string = "?";
     let anonErr = "";
     try {
@@ -54,7 +111,7 @@ async function searchFromDb(p: SearchParams): Promise<SearchResult> {
       page: p.page ?? 1,
       per: p.per ?? 20,
       demo: false,
-      debugError: `函数返回0条｜网站连接的库=${host}｜网站匿名直查表=${anonCount}条${anonErr ? `（查表出错:${anonErr}）` : ""}｜参数：q=${p.q ?? ""} cat=${p.category ?? "-"} st=${p.status ?? "-"} days=${p.days ?? 0}`,
+      debugError: `RPC与直查兜底均返回0条｜网站连接的库=${host}｜网站匿名直查表=${anonCount}条${anonErr ? `（查表出错:${anonErr}）` : ""}｜参数：q=${p.q ?? ""} cat=${p.category ?? "-"} st=${p.status ?? "-"} days=${p.days ?? 0}`,
     };
   }
   return {
