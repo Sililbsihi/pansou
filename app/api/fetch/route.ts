@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "参数错误" }, { status: 400 });
   }
 
-  const kw = normalizeKeyword(body.keyword);
+  const kw = normalizeKeyword(body.keyword ?? "");
   if (!kw) {
     return NextResponse.json({ ok: false, error: "关键词不能为空" }, { status: 400 });
   }
