@@ -64,7 +64,9 @@ export async function GET(req: NextRequest) {
   // 因此统一把关键词裁剪成首个词，并去重。
   const normalizeKeyword = (raw: string): string => (raw.trim().split(/\s+/)[0] ?? "").slice(0, 30);
 
-  const dayIndex = Math.floor(Date.now() / 86_400_000);
+  // 以网站上线日为基准顺序轮转：首日从池子头部热词开始，之后每天顺延一批
+  const LAUNCH_DAY = Math.floor(Date.UTC(2026, 8, 25) / 86_400_000);
+  const dayIndex = Math.max(0, Math.floor(Date.now() / 86_400_000) - LAUNCH_DAY);
   const kwSet = new Set<string>();
   for (let i = 0; i < KEYWORDS_PER_RUN && i < SYNC_KEYWORDS.length; i++) {
     const kw = normalizeKeyword(SYNC_KEYWORDS[(dayIndex * KEYWORDS_PER_RUN + i) % SYNC_KEYWORDS.length]);
