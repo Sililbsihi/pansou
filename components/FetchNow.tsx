@@ -24,15 +24,10 @@ export default function FetchNow({ keyword, mode }: { keyword: string; mode: "em
       });
       const j = await res.json();
       if (res.ok && j.ok) {
-        if ((j.inserted ?? 0) > 0) {
-          setState("done");
-          setMsg(j.message ?? "抓取完成");
-          setTimeout(() => window.location.reload(), 1800); // 稍作停留让用户看到结果，再刷新页面
-        } else {
-          // 抓取成功但全网确实没有新资源：如实告知，不再自动刷新
-          setState("done");
-          setMsg(j.message ?? "全网暂未找到该资源");
-        }
+        setState("done");
+        setMsg(j.message ?? "抓取完成");
+        // 无论是否有新增都刷新页面：让搜索结果反映数据库当前状态
+        setTimeout(() => window.location.reload(), 1800);
       } else {
         setState("error");
         setMsg(j.error || "抓取失败，请稍后再试");
