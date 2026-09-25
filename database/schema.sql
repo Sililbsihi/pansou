@@ -27,7 +27,8 @@ create table if not exists resources (
 );
 
 -- 分享链接唯一：同一条链接只收录一次
-create unique index if not exists resources_share_url_idx on resources (lower(share_url));
+-- 唯一索引必须是裸列（不能用 lower() 表达式），否则 ON CONFLICT (share_url) 无法匹配
+create unique index if not exists resources_share_url_idx on resources (share_url);
 
 -- 中文模糊搜索加速（标题+简介 合并表达式上的 trigram 索引）
 create index if not exists resources_search_trgm_idx
