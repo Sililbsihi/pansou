@@ -54,4 +54,5 @@ export interface SearchResult {
   page: number;
   per: number;
   demo: boolean; // 是否为演示模式数据
+  debugError?: string; // 诊断信息：数据库查询失败的具体原因（仅无结果时展示）
 }

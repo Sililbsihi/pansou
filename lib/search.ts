@@ -33,12 +33,19 @@ async function searchFromDb(p: SearchParams): Promise<SearchResult> {
   });
   if (error) throw error;
   const first = (data as { rows: Resource[]; total: number }[])?.[0];
+  const total = Number(first?.total ?? 0);
   return {
     rows: first?.rows ?? [],
-    total: Number(first?.total ?? 0),
+    total,
     page: p.page ?? 1,
     per: p.per ?? 20,
     demo: false,
+    // RPC 成功执行但返回 0 条时，把实际使用的查询参数带到页面，便于诊断
+    ...(total === 0
+      ? {
+          debugError: `数据库函数已执行、返回 0 条（参数：q=${p.q ?? ""}｜cat=${p.category ?? "-"}｜pan=${p.pan ?? "-"}｜st=${p.status ?? "-"}｜days=${p.days ?? 0}｜size=${p.size ?? "-"}）`,
+        }
+      : {}),
   };
 }
 
@@ -82,10 +89,13 @@ export async function searchResources(params: SearchParams): Promise<SearchResul
     try {
       return await searchFromDb(params);
     } catch (e) {
-      console.error("[搜索] 数据库查询失败，回退演示数据：", e);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[搜索] 数据库查询失败，回退演示数据：", msg);
+      // 回退演示数据的同时，把失败原因带给页面（用于无结果时的诊断展示）
+      return { ...searchFromDemo(params), debugError: `数据库查询失败：${msg}` };
     }
   }
-  return searchFromDemo(params);
+  return { ...searchFromDemo(params), debugError: "未配置 Supabase 环境变量（演示模式）" };
 }
 
 /** 记录搜索词（用于首页热搜榜）；失败静默，不影响搜索结果 */
