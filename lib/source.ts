@@ -46,13 +46,33 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = 25000)
 /**
  * 从 PanSou 拉取某关键词的资源列表
  * 只保留可识别网盘类型的链接，按 share_url 去重
+ * 内容安全：过滤磁力/ed2k 链接、成人垃圾来源与成人关键词
  */
+const BLOCKED_SOURCES = ["u3c3", "sukebei"]; // 已知的成人内容插件源，整条屏蔽
+
+const BLOCKED_WORDS = [
+  "做爱", "啪啪", "无套", "约炮", "少妇", "人妻", "自慰", "裸聊", "援交",
+  "肉欲", "情色", "色情", "福利姬", "无码", "有码", "jav", "磁力搜索", "黄色",
+];
+
+function isAdultSpam(note: string, source: string | undefined): boolean {
+  const s = (source ?? "").toLowerCase();
+  if (BLOCKED_SOURCES.some((b) => s.includes(b))) return true;
+  const t = note.toLowerCase();
+  return BLOCKED_WORDS.some((w) => t.includes(w));
+}
+
 export async function fetchFromSource(keyword: string): Promise<NormalizedResource[]> {
   const base = process.env.SOURCE_API_URL;
   if (!base) return [];
 
   const u = base.replace(/\/+$/, "") + "/api/search";
-  const params = new URLSearchParams({ kw: keyword, res: "merge" });
+  // cloud_types 限定只返回网盘类结果（lanzou 归在 others，磁力/ed2k 不返回）
+  const params = new URLSearchParams({
+    kw: keyword,
+    res: "merge",
+    cloud_types: "baidu,quark,xunlei,aliyun,uc,tianyi,115,123,mobile,others",
+  });
   const headers: Record<string, string> = { "User-Agent": "Mozilla/5.0 pansou-sync" };
   if (process.env.SOURCE_API_TOKEN) headers["Authorization"] = `Bearer ${process.env.SOURCE_API_TOKEN}`;
 
@@ -66,6 +86,8 @@ export async function fetchFromSource(keyword: string): Promise<NormalizedResour
     if (!Array.isArray(entries)) continue;
     for (const e of entries) {
       if (!e?.url || !e?.note) continue;
+      if (/^(magnet:|ed2k:)/i.test(e.url)) continue; // 双保险：磁力/ed2k 一律不收
+      if (isAdultSpam(e.note, e.source)) continue;   // 成人垃圾内容过滤
       const pan = detectPanType(e.url);
       if (pan === "other") continue; // 只收录可识别的网盘（百度/夸克/迅雷/蓝奏云等）
       if (seen.has(e.url)) continue; // 按链接去重
