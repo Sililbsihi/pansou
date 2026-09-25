@@ -60,22 +60,28 @@ export async function GET(req: NextRequest) {
   }
 
   // ---------- 1. 关键词选择：轮转池 + 近期真实热搜词 ----------
+  // PanSou 对带空格的组合词（如“三体 电视剧”）会返回空结果，
+  // 因此统一把关键词裁剪成首个词，并去重。
+  const normalizeKeyword = (raw: string): string => (raw.trim().split(/\s+/)[0] ?? "").slice(0, 30);
+
   const dayIndex = Math.floor(Date.now() / 86_400_000);
-  const keywords: string[] = [];
+  const kwSet = new Set<string>();
   for (let i = 0; i < KEYWORDS_PER_RUN && i < SYNC_KEYWORDS.length; i++) {
-    keywords.push(SYNC_KEYWORDS[(dayIndex * KEYWORDS_PER_RUN + i) % SYNC_KEYWORDS.length]);
+    const kw = normalizeKeyword(SYNC_KEYWORDS[(dayIndex * KEYWORDS_PER_RUN + i) % SYNC_KEYWORDS.length]);
+    if (kw) kwSet.add(kw);
   }
   try {
     const { data } = await getDb().rpc("get_hot_keywords", { p_limit: 10 });
     if (Array.isArray(data)) {
       for (const row of data as { keyword: string }[]) {
-        const kw = row.keyword?.trim();
-        if (kw && !keywords.includes(kw)) keywords.push(kw);
+        const kw = normalizeKeyword(row.keyword ?? "");
+        if (kw) kwSet.add(kw);
       }
     }
   } catch {
     // 热搜词获取失败不影响主流程
   }
+  const keywords = Array.from(kwSet);
 
   // ---------- 2. 预热 + 并发抓取 ----------
   await prewarmSource();
