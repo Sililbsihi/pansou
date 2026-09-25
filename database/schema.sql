@@ -78,6 +78,20 @@ create table if not exists sync_logs (
 );
 
 -- =====================================================================
+-- 4.5 即时抓取任务表（网页“全网立即搜索”按钮的限流与记录）
+--     匿名完全不可读写（RLS 全拒绝）；仅服务端 service_role 读写
+-- =====================================================================
+create table if not exists fetch_jobs (
+  id         bigint generated always as identity primary key,
+  keyword    text not null,     -- 规范化后的抓取关键词
+  ip_hash    text,              -- 访客 IP 的加盐哈希（不存原始 IP）
+  created_at timestamptz not null default now()
+);
+create index if not exists fetch_jobs_kw_idx on fetch_jobs (keyword, created_at desc);
+create index if not exists fetch_jobs_ip_idx on fetch_jobs (ip_hash, created_at desc);
+create index if not exists fetch_jobs_created_idx on fetch_jobs (created_at desc);
+
+-- =====================================================================
 -- 5. RLS 行级安全（【安全铁律】每张表默认拒绝，只放行明确允许的操作）
 --    匿名访客：只能读 resources；只能写 search_logs / reports
 --    写 resources / 读统计：只走服务端 service_role（自动绕过 RLS）
@@ -86,6 +100,7 @@ alter table resources  enable row level security;
 alter table search_logs enable row level security;
 alter table reports    enable row level security;
 alter table sync_logs  enable row level security;
+alter table fetch_jobs enable row level security;
 
 -- 任何人可浏览资源
 drop policy if exists "任何人可读资源" on resources;

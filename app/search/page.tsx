@@ -4,6 +4,7 @@ import SearchBox from "@/components/SearchBox";
 import ResourceCard from "@/components/ResourceCard";
 import FilterBar, { parseFilters } from "@/components/FilterBar";
 import Pagination from "@/components/Pagination";
+import FetchNow from "@/components/FetchNow";
 import { searchResources, logSearch } from "@/lib/search";
 import type { SearchParams } from "@/lib/types";
 
@@ -62,7 +63,7 @@ export default async function SearchPage({ searchParams }: Props) {
 
         {/* 结果区 */}
         <section>
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex items-center justify-between gap-2">
             <p className="text-sm text-slate-500 dark:text-slate-400">
               {filters.q ? (
                 <>
@@ -75,6 +76,8 @@ export default async function SearchPage({ searchParams }: Props) {
                 </>
               )}
             </p>
+            {/* 有结果但可能不是最新：提供强制抓取最新入口 */}
+            {filters.q && !result.demo ? <FetchNow keyword={filters.q} mode="refresh" /> : null}
           </div>
 
           {result.rows.length > 0 ? (
@@ -90,7 +93,8 @@ export default async function SearchPage({ searchParams }: Props) {
             <div className="rounded-xl border border-dashed border-slate-300 py-16 text-center dark:border-slate-700">
               <p className="text-4xl">🔍</p>
               <p className="mt-3 text-sm font-medium text-slate-600 dark:text-slate-300">没有找到相关资源</p>
-              <p className="mt-1 text-xs text-slate-400">换个关键词试试，或放宽筛选条件；资源库每日更新，明天再来看看</p>
+              <p className="mt-1 text-xs text-slate-400">换个关键词试试，或放宽筛选条件</p>
+              {filters.q && !result.demo ? <FetchNow keyword={filters.q} mode="empty" /> : null}
             </div>
           )}
         </section>

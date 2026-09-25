@@ -68,7 +68,7 @@ function isAdultSpam(note: string, source: string | undefined): boolean {
 
 export async function fetchFromSource(
   keyword: string,
-  opts: { refresh?: boolean } = {}
+  opts: { refresh?: boolean; timeoutMs?: number } = {}
 ): Promise<NormalizedResource[]> {
   const base = process.env.SOURCE_API_URL;
   if (!base) return [];
@@ -85,7 +85,7 @@ export async function fetchFromSource(
   const headers: Record<string, string> = { "User-Agent": "Mozilla/5.0 pansou-sync" };
   if (process.env.SOURCE_API_TOKEN) headers["Authorization"] = `Bearer ${process.env.SOURCE_API_TOKEN}`;
 
-  const res = await fetchWithTimeout(`${u}?${params.toString()}`, { headers });
+  const res = await fetchWithTimeout(`${u}?${params.toString()}`, { headers }, opts.timeoutMs ?? 25000);
   if (!res.ok) throw new Error(`数据源返回 ${res.status}`);
   const json = (await res.json()) as PanSouResponse;
 
