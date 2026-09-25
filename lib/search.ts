@@ -44,7 +44,7 @@ async function searchViaDirect(
   if (p.sort === "size_desc") {
     query = query.order("file_size", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false });
   } else if (p.sort === "size_asc") {
-    query = query.order("file_size", { ascending: true, nullsLast: true }).order("updated_at", { ascending: false });
+    query = query.order("file_size", { ascending: true, nullsFirst: false }).order("updated_at", { ascending: false });
   } else {
     query = query.order("updated_at", { ascending: false });
   }
