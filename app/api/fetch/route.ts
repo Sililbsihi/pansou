@@ -68,12 +68,13 @@ export async function POST(req: NextRequest) {
         file_size: r.file_size,
         status: "active",
         source: r.source,
+        updated_at: new Date().toISOString(),
       }));
       for (let i = 0; i < rows.length; i += 200) {
         const batch = rows.slice(i, i + 200);
         const { data, error } = await admin
           .from("resources")
-          .upsert(batch, { onConflict: "share_url", ignoreDuplicates: true })
+          .upsert(batch, { onConflict: "share_url" })
           .select("id");
         if (error) throw new Error(`入库失败: ${error.message}`);
         inserted += data?.length ?? 0;
