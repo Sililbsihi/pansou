@@ -1,143 +1,142 @@
 /**
- * 每日定时任务（Vercel Cron 每天北京时间 04:00 自动调用）：
- *  1. 抓取：按关键词轮转池 + 近期热搜词，从 PanSou 数据源拉取新资源，去重入库
- *  2. 复检：轮转检测一批存量链接的有效性，更新「有效/失效」状态
- *  3. 日志：写入 sync_logs 便于排查
- * 安全：需要 CRON_SECRET（Vercel Cron 自动携带 Authorization: Bearer <CRON_SECRET>）
+ * 资源抓取任务：从 PanSou 数据源拉取新资源入库
+ * 触发方式：
+ *   1. Vercel 定时任务：每天北京时间 04:00 自动调用（自动携带密钥）
+ *   2. 手动触发：浏览器打开 /api/cron/sync?secret=<CRON_SECRET> 即可立即抓取
+ * 安全：三种鉴权方式任一通过即可（Authorization 头 / x-cron-secret 头 / secret 查询参数）
  */
 import { NextRequest, NextResponse } from "next/server";
 import { isDbConfigured, getAdminDb, getDb } from "@/lib/db";
-import { fetchFromSource } from "@/lib/source";
-import { checkResource, runPool } from "@/lib/validate";
+import { fetchFromSource, type NormalizedResource } from "@/lib/source";
+import { runPool } from "@/lib/validate";
 import { SYNC_KEYWORDS } from "@/lib/keywords";
-import type { Resource } from "@/lib/types";
 
-// 单次任务的规模控制（免费档执行时长有限，控制在数分钟内完成）
-const KEYWORDS_PER_RUN = 24;   // 每次抓取的关键词数量（池子 6 天轮完一圈）
-const RECHECK_PER_RUN = 60;    // 每次复检的存量链接数量
+// Vercel Hobby 档函数最长 60 秒（默认 10 秒不够用，必须显式声明）
+export const maxDuration = 60;
+
+const KEYWORDS_PER_RUN = 24;   // 每次抓取的关键词数量（池子约 6 天轮完一圈）
+const FETCH_CONCURRENCY = 8;   // 并发抓取数
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false; // 未配置密钥时禁止执行
   const auth = req.headers.get("authorization") ?? "";
   const custom = req.headers.get("x-cron-secret") ?? "";
-  return auth === `Bearer ${secret}` || custom === secret;
+  const query = req.nextUrl.searchParams.get("secret") ?? "";
+  return auth === `Bearer ${secret}` || custom === secret || query === secret;
 }
 
-/** 依据日期轮转选出本次抓取的关键词（含热搜词） */
-async function pickKeywords(db: ReturnType<typeof getDb> | null): Promise<string[]> {
-  const day = Math.floor(Date.now() / 86400000);
-  const start = (day * KEYWORDS_PER_RUN) % SYNC_KEYWORDS.length;
-  const pool = SYNC_KEYWORDS.slice(start, start + KEYWORDS_PER_RUN);
-  if (pool.length < KEYWORDS_PER_RUN) pool.push(...SYNC_KEYWORDS.slice(0, KEYWORDS_PER_RUN - pool.length));
-
-  // 追加近期热搜词（用户真实需求优先）
-  if (db) {
-    try {
-      const { data } = await db.rpc("get_hot_keywords", { p_limit: 10 });
-      if (data) for (const d of data as { keyword: string }[]) if (!pool.includes(d.keyword)) pool.push(d.keyword);
-    } catch {}
+/** 预热数据源：免费托管（如 Render）冷启动可能需要 20-50 秒，先唤醒再抓 */
+async function prewarmSource(): Promise<void> {
+  const base = process.env.SOURCE_API_URL;
+  if (!base) return;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 40_000);
+  try {
+    await fetch(base, { signal: ctrl.signal, cache: "no-store" });
+  } catch {
+    // 预热失败不致命，后面的正式抓取会重试
+  } finally {
+    clearTimeout(timer);
   }
-  return pool;
 }
 
 export async function GET(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ ok: false, error: "未授权" }, { status: 401 });
   }
+
+  const started = Date.now();
+  const summary = { fetched: 0, inserted: 0, errors: [] as string[] };
+
   if (!isDbConfigured()) {
-    return NextResponse.json({ ok: false, error: "未配置 Supabase，定时任务不执行" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "数据库未配置（Supabase 环境变量缺失）" }, { status: 500 });
+  }
+  const admin = getAdminDb();
+
+  const sourceUrl = process.env.SOURCE_API_URL;
+  if (!sourceUrl) {
+    return NextResponse.json({ ok: false, error: "未配置 SOURCE_API_URL 环境变量，无法抓取。请在 Vercel → Settings → Environment Variables 中添加数据源地址后重新部署" });
   }
 
-  const admin = getAdminDb();
-  const started = Date.now();
-  const summary = { keywords: 0, fetched: 0, inserted: 0, rechecked: 0, marked_invalid: 0, errors: [] as string[] };
+  // ---------- 1. 关键词选择：轮转池 + 近期真实热搜词 ----------
+  const dayIndex = Math.floor(Date.now() / 86_400_000);
+  const keywords: string[] = [];
+  for (let i = 0; i < KEYWORDS_PER_RUN && i < SYNC_KEYWORDS.length; i++) {
+    keywords.push(SYNC_KEYWORDS[(dayIndex * KEYWORDS_PER_RUN + i) % SYNC_KEYWORDS.length]);
+  }
+  try {
+    const { data } = await getDb().rpc("get_hot_keywords", { p_limit: 10 });
+    if (Array.isArray(data)) {
+      for (const row of data as { keyword: string }[]) {
+        const kw = row.keyword?.trim();
+        if (kw && !keywords.includes(kw)) keywords.push(kw);
+      }
+    }
+  } catch {
+    // 热搜词获取失败不影响主流程
+  }
 
-  // ---------- 1. 抓取新资源 ----------
-  if (!process.env.SOURCE_API_URL) {
-    summary.errors.push("未配置 SOURCE_API_URL，跳过抓取");
-  } else {
-    const db = getDb();
-    const keywords = await pickKeywords(db);
-    summary.keywords = keywords.length;
+  // ---------- 2. 预热 + 并发抓取 ----------
+  await prewarmSource();
 
-    for (const kw of keywords) {
-      try {
-        const items = await fetchFromSource(kw);
-        summary.fetched += items.length;
-        if (items.length === 0) continue;
+  const allItems: NormalizedResource[] = [];
+  await runPool(keywords, FETCH_CONCURRENCY, async (kw) => {
+    try {
+      const items = await fetchFromSource(kw);
+      allItems.push(...items);
+      summary.fetched += items.length;
+    } catch (e) {
+      summary.errors.push(`${kw}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return null;
+  });
 
-        // 用 share_url 判重：只插入数据库里还没有的链接
-        const urls = items.map((i) => i.share_url);
-        const { data: existing } = await admin
-          .from("resources")
-          .select("share_url")
-          .in("share_url", urls);
-        const known = new Set((existing ?? []).map((e: { share_url: string }) => e.share_url));
-        const fresh = items.filter((i) => !known.has(i.share_url));
-        if (fresh.length === 0) continue;
-
-        const rows = fresh.map((i) => ({
-          title: i.title,
-          description: i.description,
-          category: i.category,
-          pan_type: i.pan_type,
-          share_url: i.share_url,
-          extract_code: i.extract_code,
-          file_size: i.file_size,
-          status: "active" as const, // 新入库默认有效，等待复检确认
-          source: i.source,
-        }));
-        const { error } = await admin.from("resources").insert(rows);
-        if (error) summary.errors.push(`插入失败(${kw}): ${error.message}`);
-        else summary.inserted += fresh.length;
-      } catch (e) {
-        summary.errors.push(`抓取失败(${kw}): ${e instanceof Error ? e.message : String(e)}`);
+  // ---------- 3. 按链接去重后批量入库（已存在的跳过） ----------
+  if (allItems.length > 0) {
+    const byUrl = new Map(allItems.map((r) => [r.share_url, r]));
+    const rows = Array.from(byUrl.values()).map((r) => ({
+      title: r.title,
+      description: r.description,
+      category: r.category,
+      pan_type: r.pan_type,
+      share_url: r.share_url,
+      extract_code: r.extract_code,
+      file_size: r.file_size,
+      status: "active",
+      source: r.source,
+    }));
+    for (let i = 0; i < rows.length; i += 200) {
+      const batch = rows.slice(i, i + 200);
+      const { data, error } = await admin
+        .from("resources")
+        .upsert(batch, { onConflict: "share_url", ignoreDuplicates: true })
+        .select("id");
+      if (error) {
+        summary.errors.push(`入库: ${error.message}`);
+      } else {
+        summary.inserted += data?.length ?? 0; // select 返回的才是真正新插入的行
       }
     }
   }
 
-  // ---------- 2. 轮转复检存量链接 ----------
-  try {
-    const { data: batch, error } = await admin
-      .from("resources")
-      .select("id, share_url, pan_type")
-      .order("last_checked_at", { ascending: true, nullsFirst: true })
-      .limit(RECHECK_PER_RUN);
-    if (error) throw error;
-
-    if (batch && batch.length > 0) {
-      await runPool(batch as Pick<Resource, "id" | "share_url" | "pan_type">[], 6, async (item) => {
-        const result = await checkResource(item.pan_type, item.share_url);
-        summary.rechecked++;
-        if (result === "unknown") {
-          // 无法判断：只刷新检测时间，不改状态
-          await admin.from("resources").update({ last_checked_at: new Date().toISOString() }).eq("id", item.id);
-        } else {
-          if (result === "invalid") summary.marked_invalid++;
-          await admin
-            .from("resources")
-            .update({ status: result, last_checked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-            .eq("id", item.id);
-        }
-        return null;
-      });
-    }
-  } catch (e) {
-    summary.errors.push(`复检失败: ${e instanceof Error ? e.message : String(e)}`);
-  }
-
-  // ---------- 3. 写同步日志 ----------
+  // ---------- 4. 写同步日志 ----------
   try {
     await admin.from("sync_logs").insert({
       inserted: summary.inserted,
       fetched: summary.fetched,
-      rechecked: summary.rechecked,
-      marked_invalid: summary.marked_invalid,
+      rechecked: 0,
+      marked_invalid: 0,
       message: summary.errors.length ? summary.errors.join(" | ").slice(0, 900) : "ok",
       duration_ms: Date.now() - started,
     });
   } catch {}
 
-  return NextResponse.json({ ok: true, ...summary, duration_ms: Date.now() - started });
+  return NextResponse.json({
+    ok: true,
+    message: `抓取完成：共获取 ${summary.fetched} 条，新入库 ${summary.inserted} 条（重复自动跳过）`,
+    keywords: keywords.length,
+    ...summary,
+    duration_ms: Date.now() - started,
+  });
 }
