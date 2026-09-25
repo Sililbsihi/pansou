@@ -29,6 +29,10 @@ interface MergedEntry {
 }
 
 interface PanSouResponse {
+  // 兼容两种返回结构：新版包裹在 data 字段里，旧版在顶层
+  data?: {
+    merged_by_type?: Record<string, MergedEntry[]>;
+  };
   merged_by_type?: Record<string, MergedEntry[]>;
 }
 
@@ -82,7 +86,8 @@ export async function fetchFromSource(keyword: string): Promise<NormalizedResour
 
   const seen = new Set<string>();
   const out: NormalizedResource[] = [];
-  for (const entries of Object.values(json.merged_by_type ?? {})) {
+  const merged = json.data?.merged_by_type ?? json.merged_by_type ?? {};
+  for (const entries of Object.values(merged)) {
     if (!Array.isArray(entries)) continue;
     for (const e of entries) {
       if (!e?.url || !e?.note) continue;
