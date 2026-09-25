@@ -14,8 +14,10 @@ import { SYNC_KEYWORDS } from "@/lib/keywords";
 // Vercel Hobby 档函数最长 60 秒（默认 10 秒不够用，必须显式声明）
 export const maxDuration = 60;
 
-const KEYWORDS_PER_RUN = 24;   // 每次抓取的关键词数量（池子约 6 天轮完一圈）
-const FETCH_CONCURRENCY = 8;   // 并发抓取数
+const KEYWORDS_PER_RUN = 24;   // 每次抓取的关键词数量（池子约 2~3 天轮完一圈）
+const FETCH_CONCURRENCY = 8;   // 普通抓取并发数（走数据源缓存，快）
+const REFRESH_CONCURRENCY = 4; // 强制刷新并发数（绕过缓存，慢，避免拖垮总时长）
+const ONGOING_REFRESH_PER_RUN = 12; // 每次强制刷新的追更词上限
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -85,20 +87,43 @@ export async function GET(req: NextRequest) {
   }
   const keywords = Array.from(kwSet);
 
-  // ---------- 2. 预热 + 并发抓取 ----------
+  // ---------- 1.5 识别追更词：已收录资源标题带“更新至/连载中”的词，每天强制刷新抓取 ----------
+  const refreshSet = new Set<string>();
+  try {
+    const { data: ongoingRows } = await admin
+      .from("resources")
+      .select("title")
+      .or("title.ilike.%更新至%,title.ilike.%连载中%")
+      .limit(300);
+    const ongoingTitles = (ongoingRows ?? []).map((r: { title: string }) => r.title ?? "");
+    for (const kw of keywords) {
+      if (ongoingTitles.some((t) => t.includes(kw))) refreshSet.add(kw);
+    }
+    // 单次强制刷新数量上限（强制刷新较慢，控制总时长）
+    const capped = Array.from(refreshSet).slice(0, ONGOING_REFRESH_PER_RUN);
+    refreshSet.clear();
+    for (const kw of capped) refreshSet.add(kw);
+  } catch {
+    // 追更词识别失败不影响主流程
+  }
+  const normalKeywords = keywords.filter((kw) => !refreshSet.has(kw));
+
+  // ---------- 2. 预热 + 并发抓取（追更词走强制刷新，普通词走缓存） ----------
   await prewarmSource();
 
   const allItems: NormalizedResource[] = [];
-  await runPool(keywords, FETCH_CONCURRENCY, async (kw) => {
+  const fetchOne = async (kw: string, refresh: boolean) => {
     try {
-      const items = await fetchFromSource(kw);
+      const items = await fetchFromSource(kw, { refresh });
       allItems.push(...items);
       summary.fetched += items.length;
     } catch (e) {
       summary.errors.push(`${kw}: ${e instanceof Error ? e.message : String(e)}`);
     }
     return null;
-  });
+  };
+  await runPool(normalKeywords, FETCH_CONCURRENCY, (kw) => fetchOne(kw, false));
+  await runPool(Array.from(refreshSet), REFRESH_CONCURRENCY, (kw) => fetchOne(kw, true));
 
   // ---------- 3. 按链接去重后批量入库（已存在的跳过） ----------
   if (allItems.length > 0) {

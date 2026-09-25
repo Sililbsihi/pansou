@@ -66,7 +66,10 @@ function isAdultSpam(note: string, source: string | undefined): boolean {
   return BLOCKED_WORDS.some((w) => t.includes(w));
 }
 
-export async function fetchFromSource(keyword: string): Promise<NormalizedResource[]> {
+export async function fetchFromSource(
+  keyword: string,
+  opts: { refresh?: boolean } = {}
+): Promise<NormalizedResource[]> {
   const base = process.env.SOURCE_API_URL;
   if (!base) return [];
 
@@ -77,6 +80,8 @@ export async function fetchFromSource(keyword: string): Promise<NormalizedResour
     res: "merge",
     cloud_types: "baidu,quark,xunlei,aliyun,uc,tianyi,115,123,mobile,others",
   });
+  // 追更词强制刷新：绕过数据源缓存，拿到当天最新集数的分享
+  if (opts.refresh) params.set("refresh", "true");
   const headers: Record<string, string> = { "User-Agent": "Mozilla/5.0 pansou-sync" };
   if (process.env.SOURCE_API_TOKEN) headers["Authorization"] = `Bearer ${process.env.SOURCE_API_TOKEN}`;
 
