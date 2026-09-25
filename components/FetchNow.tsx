@@ -38,12 +38,24 @@ export default function FetchNow({ keyword, mode }: { keyword: string; mode: "em
     }
   }
 
-  // 搜索无结果时自动触发一次实时搜索
+  // 搜索无结果时自动触发一次实时搜索（每个关键词每次会话只自动一次，防止无限循环）
   useEffect(() => {
-    if (mode === "empty" && !autoRan.current) {
-      autoRan.current = true;
-      void run();
+    if (mode !== "empty" || autoRan.current) return;
+    autoRan.current = true;
+    const key = `pansou_autofetch_${keyword}`;
+    let served = false;
+    try {
+      served = window.sessionStorage.getItem(key) === "1";
+      window.sessionStorage.setItem(key, "1");
+    } catch {
+      /* 隐私模式等场景忽略 */
     }
+    if (served) {
+      setState("done");
+      setMsg("本次会话已自动搜索过该词且暂无新增；如需再次尝试，可点击下方按钮");
+      return;
+    }
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

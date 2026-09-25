@@ -51,12 +51,16 @@ export async function GET(req: NextRequest) {
   // 因此统一把关键词裁剪成首个词，并去重。
   const normalizeKeyword = (raw: string): string => (raw.trim().split(/\s+/)[0] ?? "").slice(0, 30);
 
+  // ?all=1 全库刷新模式：一次抓取完整关键词池（用于一次性刷新所有已收录资源的标题等信息）
+  const fullSweep = req.nextUrl.searchParams.get("all") === "1";
   // 以网站上线日为基准顺序轮转：首日从池子头部热词开始，之后每天顺延一批
   const LAUNCH_DAY = Math.floor(Date.UTC(2026, 8, 25) / 86_400_000);
   const dayIndex = Math.max(0, Math.floor(Date.now() / 86_400_000) - LAUNCH_DAY);
   const kwSet = new Set<string>();
-  for (let i = 0; i < KEYWORDS_PER_RUN && i < SYNC_KEYWORDS.length; i++) {
-    const kw = normalizeKeyword(SYNC_KEYWORDS[(dayIndex * KEYWORDS_PER_RUN + i) % SYNC_KEYWORDS.length]);
+  const wordCount = fullSweep ? SYNC_KEYWORDS.length : Math.min(KEYWORDS_PER_RUN, SYNC_KEYWORDS.length);
+  for (let i = 0; i < wordCount; i++) {
+    const src = fullSweep ? i : (dayIndex * KEYWORDS_PER_RUN + i) % SYNC_KEYWORDS.length;
+    const kw = normalizeKeyword(SYNC_KEYWORDS[src]);
     if (kw) kwSet.add(kw);
   }
   try {
