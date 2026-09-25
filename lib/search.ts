@@ -34,18 +34,35 @@ async function searchFromDb(p: SearchParams): Promise<SearchResult> {
   if (error) throw error;
   const first = (data as { rows: Resource[]; total: number }[])?.[0];
   const total = Number(first?.total ?? 0);
+  if (total === 0) {
+    // 返回 0 条时做深度诊断：用网站的连接直查表（匿名视角）+ 报告所连数据库地址
+    let anonCount: string = "?";
+    let anonErr = "";
+    try {
+      const { count, error: cerr } = await db
+        .from("resources")
+        .select("id", { count: "exact", head: true });
+      if (cerr) anonErr = cerr.message;
+      else anonCount = String(count ?? 0);
+    } catch (e) {
+      anonErr = e instanceof Error ? e.message : String(e);
+    }
+    const host = process.env.SUPABASE_URL ? new URL(process.env.SUPABASE_URL).host : "未配置";
+    return {
+      rows: [],
+      total: 0,
+      page: p.page ?? 1,
+      per: p.per ?? 20,
+      demo: false,
+      debugError: `函数返回0条｜网站连接的库=${host}｜网站匿名直查表=${anonCount}条${anonErr ? `（查表出错:${anonErr}）` : ""}｜参数：q=${p.q ?? ""} cat=${p.category ?? "-"} st=${p.status ?? "-"} days=${p.days ?? 0}`,
+    };
+  }
   return {
     rows: first?.rows ?? [],
     total,
     page: p.page ?? 1,
     per: p.per ?? 20,
     demo: false,
-    // RPC 成功执行但返回 0 条时，把实际使用的查询参数带到页面，便于诊断
-    ...(total === 0
-      ? {
-          debugError: `数据库函数已执行、返回 0 条（参数：q=${p.q ?? ""}｜cat=${p.category ?? "-"}｜pan=${p.pan ?? "-"}｜st=${p.status ?? "-"}｜days=${p.days ?? 0}｜size=${p.size ?? "-"}）`,
-        }
-      : {}),
   };
 }
 
