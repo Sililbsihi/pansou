@@ -115,3 +115,21 @@ export async function logSearch(keyword: string): Promise<void> {
     console.error("[热搜] 记录失败：", e);
   }
 }
+
+/** 首页热搜词：近 7 天搜索次数 Top N；演示模式返回内置词 */
+export async function getHotKeywords(limit = 10): Promise<{ words: string[]; demo: boolean }> {
+  if (isDbConfigured()) {
+    try {
+      const { data, error } = await getDb().rpc("get_hot_keywords", { p_limit: limit });
+      if (!error && data) {
+        return { words: (data as { keyword: string; cnt: number }[]).map((d) => d.keyword), demo: false };
+      }
+    } catch (e) {
+      console.error("[热搜] 查询失败：", e);
+    }
+  }
+  return {
+    words: ["庆余年", "流浪地球", "三体", "海贼王", "哈利波特", "斗破苍穹", "狂飙", "诡秘之主", "明朝那些事儿", "进击的巨人"],
+    demo: true,
+  };
+}
