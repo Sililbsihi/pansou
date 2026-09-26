@@ -49,9 +49,9 @@ export default function FetchNow({ keyword, mode }: { keyword: string; mode: "em
     } catch {
       /* 隐私模式等场景忽略 */
     }
-    if (Date.now() - last < 10 * 60_000) {
+    if (Date.now() - last < 2 * 60_000) {
       setState("done");
-      setMsg("该词 10 分钟内已自动搜索过且暂无新增；可点击下方按钮手动重试");
+      setMsg("该词 2 分钟内已自动搜索过且暂无新增；可点击下方按钮手动重试");
       return;
     }
     try {
