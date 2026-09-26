@@ -90,6 +90,28 @@ export async function GET(req: NextRequest) {
     out["E_搜索页同款函数"] = { error: String(e) };
   }
 
+  // F：服务器内部抓取自己的搜索页，看渲染出的结果数
+  try {
+    const t0 = Date.now();
+    const origin = new URL(req.url).origin;
+    const pageRes = await fetch(`${origin}/search?q=${encodeURIComponent(q)}&_dbg=${Date.now()}`, {
+      cache: "no-store",
+      headers: { "user-agent": "pansou-debug/1.0" },
+    });
+    const html = await pageRes.text();
+    const m = html.match(/共找到\s*([0-9,]+)\s*条/);
+    const titles = [...html.matchAll(/打开资源/g)].length;
+    out["F_服务器渲染的搜索页"] = {
+      状态码: pageRes.status,
+      耗时ms: Date.now() - t0,
+      页面显示结果数: m ? m[1] : "未匹配到(可能0)",
+      页面上资源卡数: titles,
+      缓存头: pageRes.headers.get("cache-control") ?? "(无)",
+    };
+  } catch (e) {
+    out["F_服务器渲染的搜索页"] = { error: String(e) };
+  }
+
   // D：表总行数（匿名）
   try {
     const { count, error } = await getDb().from("resources").select("id", { count: "exact", head: true });
