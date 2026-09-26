@@ -46,8 +46,17 @@ export default async function SearchPage({ searchParams }: Props) {
     void logSearch(filters.q);
   }
 
+  // 黑匣子：带 _dbg 参数时输出页面内部原始状态（仅隐藏节点，不影响正常渲染）
+  const dbgOn = typeof searchParams._dbg === "string" && searchParams._dbg.length > 0;
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
+      {dbgOn ? (
+        <pre
+          id="dbg-page"
+          style={{ display: "none" }}
+        >{JSON.stringify({ q: filters.q, total: result.total, rowsLen: result.rows?.length ?? 0, demo: result.demo, debugError: result.debugError ?? null, page, per: PER_PAGE, filters: { cat: filters.cat, pan: filters.pan, st: filters.st, d: filters.d, sz: filters.sz, sort: filters.sort } })}</pre>
+      ) : null}
       {/* 顶部搜索条 */}
       <div className="sticky top-14 z-30 -mx-4 mb-4 border-b border-slate-200/80 bg-slate-50/95 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
         <div className="max-w-2xl">

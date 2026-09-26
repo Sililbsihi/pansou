@@ -90,22 +90,31 @@ export async function GET(req: NextRequest) {
     out["E_搜索页同款函数"] = { error: String(e) };
   }
 
-  // F：服务器内部抓取自己的搜索页，看渲染出的结果数
+  // F：服务器内部抓取自己的搜索页（带黑匣子参数），读页面内部真实状态
   try {
     const t0 = Date.now();
     const origin = new URL(req.url).origin;
-    const pageRes = await fetch(`${origin}/search?q=${encodeURIComponent(q)}&_dbg=${Date.now()}`, {
+    const pageRes = await fetch(`${origin}/search?q=${encodeURIComponent(q)}&_dbg=1&_t=${Date.now()}`, {
       cache: "no-store",
       headers: { "user-agent": "pansou-debug/1.0" },
     });
-    const html = await pageRes.text();
+    const rawHtml = await pageRes.text();
+    const html = rawHtml.replace(/<!--[\s\S]*?-->/g, ""); // 去掉 React 注释避免干扰
     const m = html.match(/共找到\s*([0-9,]+)\s*条/);
-    const titles = [...html.matchAll(/打开资源/g)].length;
+    const dbgMatch = html.match(/<pre[^>]*id="dbg-page"[^>]*>([\s\S]*?)<\/pre>/);
+    let pageInternal: unknown = null;
+    if (dbgMatch) {
+      try {
+        pageInternal = JSON.parse(dbgMatch[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&"));
+      } catch {
+        pageInternal = dbgMatch[1].slice(0, 300);
+      }
+    }
     out["F_服务器渲染的搜索页"] = {
       状态码: pageRes.status,
       耗时ms: Date.now() - t0,
-      页面显示结果数: m ? m[1] : "未匹配到(可能0)",
-      页面上资源卡数: titles,
+      页面显示结果数: m ? m[1] : "未匹配到",
+      页面黑匣子: pageInternal,
       缓存头: pageRes.headers.get("cache-control") ?? "(无)",
     };
   } catch (e) {
