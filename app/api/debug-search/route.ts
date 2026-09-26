@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { getDb } from "@/lib/db";
+import { searchResources } from "@/lib/search";
 
 export const maxDuration = 60;
 
@@ -73,6 +74,20 @@ export async function GET(req: NextRequest) {
     out["C_搜索函数"] = { error: error?.message ?? null, total: first?.total ?? null };
   } catch (e) {
     out["C_搜索函数"] = { error: String(e) };
+  }
+
+  // E：直接调用搜索页用的同一个函数 searchResources
+  try {
+    const t0 = Date.now();
+    const res = await searchResources({ q, page: 1 });
+    out["E_搜索页同款函数"] = {
+      耗时ms: Date.now() - t0,
+      total: res.total,
+      rows: res.rows?.slice(0, 5).map((r) => r.title),
+      error: res.debugError ?? null,
+    };
+  } catch (e) {
+    out["E_搜索页同款函数"] = { error: String(e) };
   }
 
   // D：表总行数（匿名）
