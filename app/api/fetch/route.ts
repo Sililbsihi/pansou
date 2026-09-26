@@ -5,6 +5,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDbConfigured, getAdminDb } from "@/lib/db";
 import { fetchFromSource, prewarmSources } from "@/lib/source";
+import { fetchFromOpenLibrary } from "@/lib/openlibrary";
+import { fetchFromWebDocs } from "@/lib/webdocs";
 
 export const maxDuration = 60;
 
@@ -51,19 +53,26 @@ export async function POST(req: NextRequest) {
     // 先预热数据源（Render 免费实例休眠时唤醒需要 20~50 秒，不预热会全部超时）
     await prewarmSources();
 
-    // 多变体并行抓取（refresh=true 绕过数据源缓存，拿最新分享）
+    // 多路并行抓取：PanSou 变体 × N + Open Library（外文书）+ 公开文档直链
     const sourceErrors: string[] = [];
-    const settled = await Promise.allSettled(
-      variants.map((v) =>
+    const settled = await Promise.allSettled([
+      ...variants.map((v) =>
         fetchFromSource(v, {
           refresh: true,
           timeoutMs: 45000,
           onSourceError: (base, reason) => sourceErrors.push(`${base}: ${reason}`),
         })
-      )
-    );
-    const items = settled.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
-    const allFailed = settled.every((r) => r.status === "rejected");
+      ),
+      fetchFromOpenLibrary(displayKw),
+      fetchFromWebDocs(displayKw),
+    ]);
+    // PanSou 变体是前 N 路（全失败=数据源不可达才报错）；两个兜底源失败静默
+    const sourceResults = settled.slice(0, variants.length);
+    const items = [
+      ...sourceResults.flatMap((r) => (r.status === "fulfilled" ? r.value : [])),
+      ...settled.slice(variants.length).flatMap((r) => (r.status === "fulfilled" ? r.value : [])),
+    ];
+    const allFailed = sourceResults.every((r) => r.status === "rejected");
 
     // 全部数据源都访问失败 → 如实报错（而不是误报“没人分享”）
     if (allFailed && sourceErrors.length > 0) {
