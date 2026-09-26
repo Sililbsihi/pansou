@@ -66,6 +66,18 @@ function isAdultSpam(note: string, source: string | undefined): boolean {
   return BLOCKED_WORDS.some((w) => t.includes(w));
 }
 
+/**
+ * 铁线过滤（无例外）：任何类别、任何情况下，涉及未成年人的内容一律不入库。
+ * 关键词保持精确，避免误伤正常作品（如含"雏田"的动漫）。
+ */
+function isMinorContent(note: string): boolean {
+  const t = note.toLowerCase();
+  return /幼女|幼童|萝莉|loli|child\s*porn|恋童|娈童|未成年性行为/.test(t);
+}
+
+/** 影视类目：影视内容必须干净（站长要求），成人过滤仅作用于这些类别 */
+const VIDEO_CATEGORIES = new Set(["movie", "tv", "tvshow", "anime"]);
+
 /** 数据源地址列表：SOURCE_API_URLS（逗号/空格分隔，支持多个，国内外结合）+ 兼容旧 SOURCE_API_URL */
 export function getSourceUrls(): string[] {
   const raw = [process.env.SOURCE_API_URLS ?? "", process.env.SOURCE_API_URL ?? ""].join(",");
@@ -165,7 +177,10 @@ async function fetchOneSource(
     for (const e of entries) {
       if (!e?.url || !e?.note) continue;
       if (/^(magnet:|ed2k:)/i.test(e.url)) continue; // 双保险：磁力/ed2k 一律不收
-      if (isAdultSpam(e.note, e.source)) continue;   // 成人垃圾内容过滤
+      if (isMinorContent(e.note)) continue;          // 铁线：涉未成年人一律不收（所有类别）
+      const category = classifyCategory(e.note);
+      // 成人内容按类别区别对待（站长要求）：影视必须干净；书籍/漫画/资料类放开
+      if (VIDEO_CATEGORIES.has(category) && isAdultSpam(e.note, e.source)) continue;
       const pan = detectPanType(e.url);
       // 注：不再跳过其他网盘——Mega/Google Drive/阿里云/115/123 等（海外内容主要在这些盘）也收录为 other
       if (seen.has(e.url)) continue; // 按链接去重
@@ -173,7 +188,7 @@ async function fetchOneSource(
       out.push({
         title: e.note.slice(0, 200),
         description: e.source ? `来源：${e.source}` : null,
-        category: classifyCategory(e.note),
+        category,
         pan_type: pan,
         share_url: e.url,
         extract_code: e.password ? e.password.slice(0, 10) : null,
