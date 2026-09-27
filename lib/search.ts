@@ -106,15 +106,34 @@ async function searchFromDb(p: SearchParams): Promise<SearchResult> {
     return { rows: (data ?? []) as unknown as Resource[], total: count ?? 0 };
   };
 
-  // L0：精确短语（或浏览模式）
-  let { rows, total } = await runQuery((qb) => (full ? qb.ilike("title", `%${full}%`) : qb));
+  // L0：精确短语（或浏览模式）。失败静默记下，继续下一级
+  let rows: Resource[] = [];
+  let total = 0;
+  const levelErrors: string[] = [];
+  try {
+    ({ rows, total } = await runQuery((qb) => (full ? qb.ilike("title", `%${full}%`) : qb)));
+  } catch (e) {
+    levelErrors.push(`L0:${e instanceof Error ? e.message : String(e)}`);
+  }
 
   // L1：组合词（空格=且，分号=或）
+  // 单组且语义：链式 .ilike() 天然为 AND，不依赖 or() 语法（多组或语义才用 or()）
   if (!rows.length && groups.length > 0) {
-    const expr = groups
-      .map((g) => (g.length > 1 ? `and(${g.map((t) => `title.ilike.*${t}*`).join(",")})` : `title.ilike.*${g[0]}*`))
-      .join(",");
-    if (expr) ({ rows, total } = await runQuery((qb) => qb.or(expr)));
+    try {
+      if (groups.length === 1) {
+        ({ rows, total } = await runQuery((qb) => {
+          for (const t of groups[0]) qb = qb.ilike("title", `%${t}%`);
+          return qb;
+        }));
+      } else {
+        const expr = groups
+          .map((g) => (g.length > 1 ? `and(${g.map((t) => `title.ilike.*${t}*`).join(",")})` : `title.ilike.*${g[0]}*`))
+          .join(",");
+        if (expr) ({ rows, total } = await runQuery((qb) => qb.or(expr)));
+      }
+    } catch (e) {
+      levelErrors.push(`L1:${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   // L2：模糊兜底（逐位去字变体做"或"匹配）
@@ -123,9 +142,18 @@ async function searchFromDb(p: SearchParams): Promise<SearchResult> {
     const vs = fuzzyVariants(terms);
     if (vs.length) {
       const expr = vs.map((v) => `title.ilike.*${v}*`).join(",");
-      ({ rows, total } = await runQuery((qb) => qb.or(expr)));
-      fuzzy = rows.length > 0;
+      try {
+        ({ rows, total } = await runQuery((qb) => qb.or(expr)));
+        fuzzy = rows.length > 0;
+      } catch (e) {
+        levelErrors.push(`L2:${e instanceof Error ? e.message : String(e)}`);
+      }
     }
+  }
+
+  // 全部级别都失败且原始错误存在：如实上抛给页面诊断显示
+  if (!rows.length && levelErrors.length > 0 && levelErrors.length === (full ? 3 : 1)) {
+    throw new Error(levelErrors.join(" | "));
   }
 
   // 相关度排序（用户显式选择大小排序时保留其意图）
@@ -144,6 +172,7 @@ async function searchFromDb(p: SearchParams): Promise<SearchResult> {
     per,
     demo: false,
     ...(fuzzy ? { fuzzy: true } : {}),
+    ...(!rows.length && levelErrors.length ? { debugError: levelErrors.join(" | ") } : {}),
   };
 }
 

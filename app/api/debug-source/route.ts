@@ -47,11 +47,33 @@ export async function GET() {
     })
   );
 
+  // 组合词语法探针：四种 AND 写法各测一发，定位 or()/and() 语法问题
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const probeDb = async (label: string, build: (qb: any) => any) => {
+    try {
+      const { isDbConfigured, getDb } = await import("@/lib/db");
+      if (!isDbConfigured()) return { label, note: "未配置 Supabase" };
+      let qb = build(getDb().from("resources").select("title", { count: "exact" }));
+      const { count, error } = await qb.limit(1);
+      return { label, 命中: count ?? null, 错误: error?.message ?? null };
+    } catch (e) {
+      return { label, 错误: e instanceof Error ? e.message : String(e) };
+    }
+  };
+
+  const dbProbes = await Promise.all([
+    probeDb("P1_链式ilike(且,小绿+小蓝)", (qb: any) => qb.ilike("title", "%小绿%").ilike("title", "%小蓝%")),
+    probeDb("P2_or嵌套and(ilike.*写法)", (qb: any) => qb.or("and(title.ilike.*小绿*,title.ilike.*小蓝*)")),
+    probeDb("P3_纯or(小绿,小蓝)", (qb: any) => qb.or("title.ilike.*小绿*,title.ilike.*小蓝*")),
+    probeDb("P4_基线ilike(小绿)", (qb: any) => qb.ilike("title", "%小绿%")),
+  ]);
+
   return NextResponse.json(
     {
       ok: true,
       配置的源站列表: bases,
       探测结果: probes,
+      数据库语法探针: dbProbes,
       提示: "若某 base 显示 404/超时/错误 → 该地址不可用；对照 Render 控制台的真实地址修正 Vercel 的 SOURCE_API_URLS",
     },
     { headers: { "cache-control": "no-store" } }
