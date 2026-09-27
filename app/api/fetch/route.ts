@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
           ? `全网搜索完成：获取 ${items.length} 条，新收录 ${inserted} 条，页面马上刷新`
           : items.length > 0
             ? `全网搜索完成：找到 ${items.length} 条，库里都已收录过（无新增）`
-            : `全网搜索完成：全网暂时还没人分享「${displayKw}」，建议过几天再试`,
+            : `全网搜索完成：全网暂时还没人分享「${displayKw}」，建议过几天再试。漫画/小说常有多种译名，可换其他叫法或简称试试`,
       fetched: items.length,
       inserted,
     });

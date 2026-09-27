@@ -55,4 +55,5 @@ export interface SearchResult {
   per: number;
   demo: boolean; // 是否为演示模式数据
   debugError?: string; // 诊断信息：数据库查询失败的具体原因（仅无结果时展示）
+  fuzzy?: boolean; // 是否为模糊兜底命中（无精确同名资源，已按相似度匹配）
 }

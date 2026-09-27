@@ -9,7 +9,7 @@ export default function SearchBox({ initial = "", size = "lg" }: { initial?: str
           type="search"
           name="q"
           defaultValue={initial}
-          placeholder="搜索影视、小说、漫画、书籍资源…"
+          placeholder="搜索影视、小说、漫画、书籍…（空格=且 分号=或）"
           maxLength={50}
           className={`w-full rounded-xl border border-slate-300 bg-white pr-4 text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 ${
             isLg ? "pl-11 py-3.5 text-base" : "pl-10 py-2 text-sm"

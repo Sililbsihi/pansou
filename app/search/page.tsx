@@ -85,6 +85,11 @@ export default async function SearchPage({ searchParams }: Props) {
                 </>
               )}
             </p>
+            {result.fuzzy ? (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                没有完全同名的资源，已按相似度模糊匹配；试试其他译名或简称会更精准
+              </p>
+            ) : null}
             {/* 有结果但可能不是最新：提供强制抓取最新入口 */}
             {filters.q && !result.demo ? <FetchNow keyword={filters.q} mode="refresh" /> : null}
           </div>
@@ -102,7 +107,7 @@ export default async function SearchPage({ searchParams }: Props) {
             <div className="rounded-xl border border-dashed border-slate-300 py-16 text-center dark:border-slate-700">
               <p className="text-4xl">🔍</p>
               <p className="mt-3 text-sm font-medium text-slate-600 dark:text-slate-300">没有找到相关资源</p>
-              <p className="mt-1 text-xs text-slate-400">换个关键词试试，或放宽筛选条件</p>
+              <p className="mt-1 text-xs text-slate-400">换个关键词试试，或放宽筛选条件；漫画/小说常有多种译名（如「海边之夜」亦作「水边之夜」），可试试别名或简称</p>
               {result.debugError ? (
                 <p className="mx-auto mt-3 max-w-lg break-all rounded bg-slate-100 px-3 py-2 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                   诊断：{result.debugError}
