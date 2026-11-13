@@ -1,11 +1,20 @@
 # 定时资源同步（替代 Vercel Cron，2026-11-13 迁移到 Render）
-# 北京时间每天 04:00 抓取 / 05:00 复检，与原 Vercel Cron 完全同款
+# 北京时间每天 04:00 抓取；04:30 起每 2 小时复检一轮死链（每轮 250 条 → 日覆盖 ~3000 条）
 # 前置：仓库 Settings → Secrets and variables → Actions → 新建 Secret：CRON_SECRET
 name: 定时资源同步
 on:
   schedule:
-    - cron: "0 20 * * *" # = 北京 04:00 → /api/cron/sync
-    - cron: "0 21 * * *" # = 北京 05:00 → /api/cron/check
+    - cron: "0 20 * * *"    # = 北京 04:00 → /api/cron/sync
+    - cron: "30 20 * * *"   # = 北京 04:30 → /api/cron/check
+    - cron: "30 22 * * *"   # = 北京 06:30 → /api/cron/check
+    - cron: "30 0 * * *"    # = 北京 08:30 → /api/cron/check
+    - cron: "30 2 * * *"    # = 北京 10:30 → /api/cron/check
+    - cron: "30 4 * * *"    # = 北京 12:30 → /api/cron/check
+    - cron: "30 6 * * *"    # = 北京 14:30 → /api/cron/check
+    - cron: "30 8 * * *"    # = 北京 16:30 → /api/cron/check
+    - cron: "30 10 * * *"   # = 北京 18:30 → /api/cron/check
+    - cron: "30 12 * * *"   # = 北京 20:30 → /api/cron/check
+    - cron: "30 14 * * *"   # = 北京 22:30 → /api/cron/check
   workflow_dispatch: # 手动触发入口
 jobs:
   cron:
@@ -18,8 +27,8 @@ jobs:
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             "${{ vars.PANSOU_URL || 'https://pansou-web-jrcq.onrender.com' }}/api/cron/sync" \
             | head -c 2000
-      - name: 资源复检（05:00 档）
-        if: github.event.schedule == '0 21 * * *'
+      - name: 资源复检（04:30 起每 2 小时一档）
+        if: github.event.schedule != '0 20 * * *'
         run: |
           curl -sS -m 900 \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \

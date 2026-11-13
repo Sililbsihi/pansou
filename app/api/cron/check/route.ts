@@ -10,7 +10,7 @@ import { checkResource, runPool } from "@/lib/validate";
 
 export const maxDuration = 60;
 
-const RECHECK_PER_RUN = 40; // 每次复检数量（60 秒预算内）
+const RECHECK_PER_RUN = 250; // 每次复检数量（Render 无 60s 硬限制，实测 40 条约 10s，250 条约 1 分钟）
 const CHECK_CONCURRENCY = 8;
 
 function authorized(req: NextRequest): boolean {
