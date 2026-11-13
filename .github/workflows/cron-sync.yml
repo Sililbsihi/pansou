@@ -1,0 +1,27 @@
+# 定时资源同步（替代 Vercel Cron，2026-11-13 迁移到 Render）
+# 北京时间每天 04:00 抓取 / 05:00 复检，与原 Vercel Cron 完全同款
+# 前置：仓库 Settings → Secrets and variables → Actions → 新建 Secret：CRON_SECRET
+name: 定时资源同步
+on:
+  schedule:
+    - cron: "0 20 * * *" # = 北京 04:00 → /api/cron/sync
+    - cron: "0 21 * * *" # = 北京 05:00 → /api/cron/check
+  workflow_dispatch: # 手动触发入口
+jobs:
+  cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 资源抓取（04:00 档）
+        if: github.event.schedule == '0 20 * * *'
+        run: |
+          curl -sS -m 900 \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            "${{ vars.PANSOU_URL || 'https://pansou-web.onrender.com' }}/api/cron/sync" \
+            | head -c 2000
+      - name: 资源复检（05:00 档）
+        if: github.event.schedule == '0 21 * * *'
+        run: |
+          curl -sS -m 900 \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            "${{ vars.PANSOU_URL || 'https://pansou-web.onrender.com' }}/api/cron/check" \
+            | head -c 2000

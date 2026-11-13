@@ -44,7 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </p>
             {/* 部署版本水印：页脚显示当前构建对应的提交号，用于确认线上运行的代码版本 */}
             <p className="mt-2 select-all font-mono text-[10px] text-slate-300 dark:text-slate-600">
-              build {process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local"}
+              build {(process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.RENDER_GIT_COMMIT)?.slice(0, 7) ?? "local"}
             </p>
           </div>
         </footer>

@@ -1,0 +1,17 @@
+# 白天预热（防冷启动）：北京 09:00–23:59 每 10 分钟 ping 一次首页
+# 让 Render 免费实例在工作时段保持热身，深夜（00:00–09:00）让它休息省额度
+# 若 Render 月度实例小时数接近 750 上限，缩短此窗口即可（改 cron 表达式）
+name: 白天预热
+on:
+  schedule:
+    - cron: "*/10 1-15 * * *" # = 北京 09:00–23:59
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ping 首页
+        run: |
+          code=$(curl -sS -m 60 -o /dev/null -w "%{http_code}" \
+            "${{ vars.PANSOU_URL || 'https://pansou-web.onrender.com' }}/")
+          echo "HTTP $code"

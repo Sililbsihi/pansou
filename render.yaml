@@ -1,0 +1,39 @@
+# Render 部署蓝图（2026-11-13 从 Vercel 迁移）
+# 站长操作：Render 后台 → New → Blueprint → 选 Sililbsihi/pansou → 填密钥 → Apply
+services:
+  - type: web
+    name: pansou-web
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      # 运行环境
+      - key: NODE_VERSION
+        value: "20"
+      # 数据库（Supabase）
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # 数据源（Render 源站）
+      - key: SOURCE_API_URLS
+        sync: false
+      - key: SOURCE_API_TOKEN
+        sync: false
+      # 安全密钥
+      - key: CRON_SECRET
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      # 站点信息
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
+      - key: SITE_NAME
+        sync: false
+      # 榜单（TMDB）
+      - key: TMDB_API_KEY
+        sync: false
