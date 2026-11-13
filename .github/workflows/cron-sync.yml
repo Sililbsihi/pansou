@@ -16,12 +16,12 @@ jobs:
         run: |
           curl -sS -m 900 \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            "${{ vars.PANSOU_URL || 'https://pansou-web.onrender.com' }}/api/cron/sync" \
+            "${{ vars.PANSOU_URL || 'https://pansou-web-jrcq.onrender.com' }}/api/cron/sync" \
             | head -c 2000
       - name: 资源复检（05:00 档）
         if: github.event.schedule == '0 21 * * *'
         run: |
           curl -sS -m 900 \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            "${{ vars.PANSOU_URL || 'https://pansou-web.onrender.com' }}/api/cron/check" \
+            "${{ vars.PANSOU_URL || 'https://pansou-web-jrcq.onrender.com' }}/api/cron/check" \
             | head -c 2000

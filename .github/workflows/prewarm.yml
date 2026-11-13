@@ -13,5 +13,5 @@ jobs:
       - name: ping 首页
         run: |
           code=$(curl -sS -m 60 -o /dev/null -w "%{http_code}" \
-            "${{ vars.PANSOU_URL || 'https://pansou-web.onrender.com' }}/")
+            "${{ vars.PANSOU_URL || 'https://pansou-web-jrcq.onrender.com' }}/")
           echo "HTTP $code"
